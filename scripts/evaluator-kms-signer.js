@@ -105,7 +105,7 @@ async function verifyFederationDenial({ policy: input, environment = process.env
     const policy = validateSigningPolicy(input);
     if (environment.GITHUB_EVENT_NAME !== "workflow_dispatch") throw new Error("wrong_probe_event");
     const result = await exchangeIdentity(policy, environment, fetcher, 400);
-    if (result.error !== "invalid_grant" || result.error_description !== "The given credential is rejected by the attribute condition.") {
+    if (result.error !== "unauthorized_client" || result.error_description !== "The given credential is rejected by the attribute condition.") {
       throw new Error("unexpected_denial");
     }
     return Object.freeze({ ok: true, status: "cloud_attribute_condition_rejected" });
