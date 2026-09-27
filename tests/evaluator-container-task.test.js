@@ -144,12 +144,16 @@ test("real container: OS boundary holds even without Node permission switches", 
       hasCredential: Object.keys(process.env).some(key => /TOKEN|SECRET|GITHUB|GOOGLE/.test(key)),
       noNewPrivileges: /NoNewPrivs:\\s+1/.test(status), noCapabilities: /CapEff:\\s+0000000000000000/.test(status),
       interfaces: Object.keys(require('node:os').networkInterfaces()),
-      routes: fs.readFileSync('/proc/net/route', 'utf8').trim().split('\\n').length - 1 };
+      routes: fs.readFileSync('/proc/net/route', 'utf8').trim().split('\\n').length - 1,
+      memoryLimit: fs.readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim(),
+      processLimit: fs.readFileSync('/sys/fs/cgroup/pids.max', 'utf8').trim(),
+      cpuLimit: fs.readFileSync('/sys/fs/cgroup/cpu.max', 'utf8').trim() };
   };`);
   const runWithoutSeatbelt = (command, args, options) => spawnSync(command,
     args.filter(arg => arg !== "--permission" && !arg.startsWith("--allow-fs-read=")), options);
   const expected = { uid: 10001, writeError: "EROFS", hasHostFile: false, hasCredential: false,
-    noNewPrivileges: true, noCapabilities: true, interfaces: ["lo"], routes: 0 };
+    noNewPrivileges: true, noCapabilities: true, interfaces: ["lo"], routes: 0,
+    memoryLimit: "134217728", processLimit: "32", cpuLimit: "100000 100000" };
   assert.deepEqual(executeCase(subject, "run", { ...item, expected }, runWithoutSeatbelt), { passed: true, reason: null });
 });
 
@@ -161,6 +165,16 @@ test("real container: ten repeated checks and rejected noisy/throwing submission
     fs.writeFileSync(subject, code);
     assert.equal(executeCase(subject, "run", item).reason, "worker_rejected");
   }
+  const remaining = spawnSync("docker", ["ps", "-aq", "--filter", "name=focustrack-eval-"], { encoding: "utf8", timeout: 15000, windowsHide: true });
+  assert.equal(remaining.status, 0);
+  assert.equal(remaining.stdout.trim(), "");
+});
+
+test("real container: an infinite submission times out and its container is removed", { skip: !live }, t => {
+  const f = fixture(t);
+  const subject = path.join(f.candidateDirectory, "subject.cjs");
+  fs.writeFileSync(subject, "exports.run = () => { while (true) {} };");
+  assert.equal(executeCase(subject, "run", item).reason, "worker_rejected");
   const remaining = spawnSync("docker", ["ps", "-aq", "--filter", "name=focustrack-eval-"], { encoding: "utf8", timeout: 15000, windowsHide: true });
   assert.equal(remaining.status, 0);
   assert.equal(remaining.stdout.trim(), "");
