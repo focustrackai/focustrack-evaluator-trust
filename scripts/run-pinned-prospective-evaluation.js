@@ -60,8 +60,23 @@ function loadPolicy() {
   return Object.freeze({ ...policy, modulePath });
 }
 
-function runGit(args, cwd) {
-  childProcess.execFileSync("git", args, { cwd, stdio: "ignore", timeout: 120000, windowsHide: true });
+function gitEnvironment(token = "", source = process.env) {
+  if (typeof token !== "string" || token.length > 4096 || /[\r\n\0]/.test(token)) throw new Error("source_credential_invalid");
+  const env = Object.fromEntries(["PATH", "SystemRoot", "SYSTEMROOT", "TEMP", "TMP"]
+    .filter(key => typeof source[key] === "string").map(key => [key, source[key]]));
+  const nullFile = process.platform === "win32" ? "NUL" : "/dev/null";
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: nullFile,
+    GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" });
+  const config = [["credential.helper", ""], ["core.hooksPath", nullFile],
+    ["protocol.file.allow", "never"], ["protocol.ext.allow", "never"], ["http.followRedirects", "false"]];
+  if (token) config.push(["http.https://github.com/.extraheader", "Authorization: Basic " + Buffer.from("x-access-token:" + token).toString("base64")]);
+  env.GIT_CONFIG_COUNT = String(config.length);
+  config.forEach(([key, value], index) => { env["GIT_CONFIG_KEY_" + index] = key; env["GIT_CONFIG_VALUE_" + index] = value; });
+  return env;
+}
+
+function runGit(args, cwd, token) {
+  childProcess.execFileSync("git", args, { cwd, env: gitEnvironment(token), stdio: "ignore", timeout: 120000, windowsHide: true });
 }
 
 function validEvaluation(value) {
@@ -76,6 +91,8 @@ async function evaluate(argv) {
   let temporary = null;
   try {
     const args = parseArgs(argv);
+    const sourceToken = process.env.FOCUSTRACK_SOURCE_READ_TOKEN || "";
+    delete process.env.FOCUSTRACK_SOURCE_READ_TOKEN;
     const binding = readJson(args["--binding"]);
     const policy = loadPolicy();
     if (!exactKeys(binding, BINDING_FIELDS) || binding.evidenceClass !== "prospective_no_award" ||
@@ -83,12 +100,12 @@ async function evaluate(argv) {
         !COMMIT.test(binding.baselineCommit) || !COMMIT.test(binding.candidateCommit)) throw new Error("binding_invalid");
     temporary = fs.mkdtempSync(path.join(os.tmpdir(), "focustrack-evaluator-"));
     const source = path.join(temporary, "source");
-    runGit(["clone", "--no-checkout", "--filter=blob:none", "https://github.com/" + policy.sourceRepository + ".git", source], temporary);
-    runGit(["fetch", "--depth=1", "origin", binding.baselineCommit, binding.candidateCommit], source);
+    runGit(["clone", "--no-checkout", "--filter=blob:none", "https://github.com/" + policy.sourceRepository + ".git", source], temporary, sourceToken);
+    runGit(["fetch", "--depth=1", "origin", binding.baselineCommit, binding.candidateCommit], source, sourceToken);
     const baselineDirectory = path.join(temporary, "baseline");
     const candidateDirectory = path.join(temporary, "candidate");
-    runGit(["worktree", "add", "--detach", baselineDirectory, binding.baselineCommit], source);
-    runGit(["worktree", "add", "--detach", candidateDirectory, binding.candidateCommit], source);
+    runGit(["worktree", "add", "--detach", baselineDirectory, binding.baselineCommit], source, sourceToken);
+    runGit(["worktree", "add", "--detach", candidateDirectory, binding.candidateCommit], source, sourceToken);
     delete require.cache[require.resolve(policy.modulePath)];
     const verifier = require(policy.modulePath);
     if (!verifier || typeof verifier.evaluate !== "function") throw new Error("verifier_invalid");
@@ -112,4 +129,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = Object.freeze({ evaluate, loadPolicy, validEvaluation });
+module.exports = Object.freeze({ evaluate, loadPolicy, validEvaluation, gitEnvironment });

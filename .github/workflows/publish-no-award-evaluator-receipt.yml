@@ -57,7 +57,11 @@ jobs:
           node-version: '24.21.0'
       - name: Accept only the sealed backend task binding
         run: node scripts/prepare-prospective-dispatch.js
+      - name: Prepare the pinned isolated runtime
+        run: docker pull node:24.21.0-bookworm-slim@sha256:5cbc7caba8c2c0f0bca675d1b61b9f2857e1cf1853c6164ee9dd409501a936e7
       - name: Run the evaluator-owned pinned verifier
+        env:
+          FOCUSTRACK_SOURCE_READ_TOKEN: ${{ secrets.FOCUSTRACK_SOURCE_READ_TOKEN }}
         run: >-
           node scripts/run-pinned-prospective-evaluation.js
           --binding private/binding.json
