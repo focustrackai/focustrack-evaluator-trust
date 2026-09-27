@@ -64,9 +64,10 @@ function gitEnvironment(token = "", source = process.env) {
   if (typeof token !== "string" || token.length > 4096 || /[\r\n\0]/.test(token)) throw new Error("source_credential_invalid");
   const env = Object.fromEntries(["PATH", "SystemRoot", "SYSTEMROOT", "TEMP", "TMP"]
     .filter(key => typeof source[key] === "string").map(key => [key, source[key]]));
-  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull,
+  const nullFile = process.platform === "win32" ? "NUL" : "/dev/null";
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: nullFile,
     GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" });
-  const config = [["credential.helper", ""], ["core.hooksPath", os.devNull],
+  const config = [["credential.helper", ""], ["core.hooksPath", nullFile],
     ["protocol.file.allow", "never"], ["protocol.ext.allow", "never"], ["http.followRedirects", "false"]];
   if (token) config.push(["http.https://github.com/.extraheader", "Authorization: Basic " + Buffer.from("x-access-token:" + token).toString("base64")]);
   env.GIT_CONFIG_COUNT = String(config.length);
