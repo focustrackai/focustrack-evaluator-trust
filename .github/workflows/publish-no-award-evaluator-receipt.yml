@@ -1,0 +1,129 @@
+name: Evaluate and publish no-award receipt
+
+on:
+  repository_dispatch:
+    types: [focustrack_prospective_evaluation, focustrack_signing_selftest]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evaluator-no-award-feed
+  cancel-in-progress: false
+
+jobs:
+  signing-probe:
+    if: github.event_name == 'workflow_dispatch' || github.event.action == 'focustrack_signing_selftest'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: focustrack-evaluator
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.21.0'
+      - name: Verify cloud signing or deliberate rejection (setup only)
+        env:
+          FOCUSTRACK_KMS_SIGNING_POLICY: ${{ vars.FOCUSTRACK_KMS_SIGNING_POLICY }}
+        run: node scripts/evaluator-cloud-signing-probe.js
+      - name: Attest setup evidence, not completed work
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: proof/cloud-signing-probe.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cloud-signing-setup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof/cloud-signing-probe.json
+          if-no-files-found: error
+          retention-days: 30
+
+  evaluate:
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'focustrack_prospective_evaluation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.21.0'
+      - name: Accept only the sealed backend task binding
+        run: node scripts/prepare-prospective-dispatch.js
+      - name: Run the evaluator-owned pinned verifier
+        run: >-
+          node scripts/run-pinned-prospective-evaluation.js
+          --binding private/binding.json
+          --out private/evaluation.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evaluation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: private/evaluation.json
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    needs: evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: focustrack-evaluator
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.21.0'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: evaluation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: incoming
+      - name: Recreate the binding from the original dispatch event
+        run: node scripts/prepare-prospective-dispatch.js
+      - name: Publish the signed no-award result
+        env:
+          FOCUSTRACK_EVALUATOR_KEY_ID: ${{ vars.FOCUSTRACK_EVALUATOR_KEY_ID }}
+          FOCUSTRACK_KMS_SIGNING_POLICY: ${{ vars.FOCUSTRACK_KMS_SIGNING_POLICY }}
+        run: >-
+          node scripts/publish-no-award-evaluator-receipt.js
+          --binding private/binding.json
+          --evaluation incoming/evaluation.json
+          --out public/focustrack-no-award-feed.json
+      - name: Attest the signed feed artifact
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: public/focustrack-no-award-feed.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: signed-no-award-feed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: public/focustrack-no-award-feed.json
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+        with:
+          path: public
+
+  publish:
+    needs: sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e
