@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "taskId": "codex_evaluator_receipt_fusion_v1",
+  "sourceRepository": "focustrackai/focustrack-",
+  "baselineCommit": "25442bd51922b453487d30caa135e2d3eca85735",
+  "baselineSha256": "2f036437274252c5188deff099c46ce5f0b4a04640d03dadfb18ad6c01958401",
+  "criteriaSha256": "a3417f1fa66a40086f464085d7c2c8c303aa0e50bc8a20b2b948351f311b4cb2"
+}

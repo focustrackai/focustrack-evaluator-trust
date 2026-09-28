@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "taskId": "codex_evaluator_receipt_fusion_v1",
+  "sourceRepository": "focustrackai/focustrack-",
+  "sourceFiles": [
+    "desktop/main.js",
+    "desktop/state/desktop-evaluator-receipt-inbox.js"
+  ],
+  "acceptance": {
+    "requiresNoAward": true,
+    "requiresExactWorkReceiptJoin": true,
+    "requiresUnrelatedReceiptRejection": true,
+    "requiresRuntimeIntelligenceWiring": true
+  }
+}
