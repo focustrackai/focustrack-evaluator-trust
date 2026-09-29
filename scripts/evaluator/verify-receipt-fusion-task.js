@@ -5,28 +5,37 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const TASK_ID = "codex_evaluator_receipt_fusion_v1";
+const TASK_ID = "codex_prospective_evaluator_receipt_inbox_v2";
 const REGISTRATION_PATH = path.resolve(__dirname, "../../evaluator-task-registration.json");
 const SOURCE_FILES = Object.freeze([
-  "desktop/main.js",
-  "desktop/state/desktop-evaluator-receipt-inbox.js"
+  "desktop/state/desktop-evaluator-receipt-inbox.js",
+  "execution-work-verification-assertion.js",
+  "shared/evidence/signed-evaluator-receipt.js"
 ]);
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 const DIGEST = /^[a-f0-9]{64}$/;
 
-function readSourceFile(root, relativePath) {
+function readSourceFile(root, relativePath, required = true) {
   const resolved = path.resolve(root, relativePath);
   const relative = path.relative(root, resolved);
-  const stat = fs.lstatSync(resolved);
+  let stat;
+  try {
+    stat = fs.lstatSync(resolved);
+  } catch (error) {
+    if (!required && error?.code === "ENOENT") return null;
+    throw error;
+  }
   if (relative.startsWith("..") || path.isAbsolute(relative) || !stat.isFile() || stat.isSymbolicLink() ||
-      stat.size > MAX_SOURCE_FILE_BYTES) throw new Error("source_file_invalid");
+    stat.size > MAX_SOURCE_FILE_BYTES) throw new Error("source_file_invalid");
   return fs.readFileSync(resolved);
 }
 
 function sourceDigest(root) {
   const canonical = SOURCE_FILES.map((relativePath) => {
-    const bytes = readSourceFile(root, relativePath);
-    return `${relativePath}\0${crypto.createHash("sha256").update(bytes).digest("hex")}\n`;
+    const bytes = readSourceFile(root, relativePath, false);
+    return bytes === null
+      ? `${relativePath}\0missing\n`
+      : `${relativePath}\0present\0${crypto.createHash("sha256").update(bytes).digest("hex")}\n`;
   }).join("");
   return crypto.createHash("sha256").update(canonical, "utf8").digest("hex");
 }
@@ -49,10 +58,10 @@ function loadRegistration() {
 
 function strictResult(value) {
   return value && typeof value === "object" && !Array.isArray(value) &&
-    Object.keys(value).sort().join(",") === "assertions,cannotAwardXp,countsTowardGenuineCorpus,createsTruth,mutatesFlow,mutatesRewards,mutatesXp,ok,status" &&
-    value.ok === true && value.status === "assertions_read" && value.cannotAwardXp === true &&
+    Object.keys(value).sort().join(",") === "assertions,countsTowardGenuineCorpus,createsTruth,liveAuthorityApproved,mutatesFlow,mutatesRewards,mutatesXp,ok,shouldAffectRewards,status" &&
+    value.ok === true && value.status === "assertions_read" && value.shouldAffectRewards === false &&
     value.countsTowardGenuineCorpus === false && value.createsTruth === false &&
-    value.mutatesXp === false && value.mutatesRewards === false && value.mutatesFlow === false &&
+    value.liveAuthorityApproved === false && value.mutatesXp === false && value.mutatesRewards === false && value.mutatesFlow === false &&
     Array.isArray(value.assertions);
 }
 
@@ -96,11 +105,12 @@ function createProbeReceipt(sourceRoot) {
 
 function evaluateSource(sourceRoot) {
   const inboxPath = path.join(sourceRoot, "desktop/state/desktop-evaluator-receipt-inbox.js");
-  const mainSource = readSourceFile(sourceRoot, "desktop/main.js").toString("utf8");
-  const inboxSource = readSourceFile(sourceRoot, "desktop/state/desktop-evaluator-receipt-inbox.js").toString("utf8");
-  if (!/getAssertionsForWorkReceipt/.test(inboxSource) || !/getAssertionsForWorkReceipt/.test(mainSource)) {
+  const inboxBytes = readSourceFile(sourceRoot, "desktop/state/desktop-evaluator-receipt-inbox.js", false);
+  if (!inboxBytes) {
     return { passed: false, checks: 0 };
   }
+  const inboxSource = inboxBytes.toString("utf8");
+  if (!/getAssertionsForWorkReceipt/.test(inboxSource)) return { passed: false, checks: 0 };
 
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "focustrack-receipt-fusion-"));
   try {
@@ -136,7 +146,9 @@ function evaluateSource(sourceRoot) {
 
 function evaluate({ baselineDirectory, candidateDirectory, binding } = {}) {
   const { registration, sha256: registrationSha256 } = loadRegistration();
-  if (!binding || binding.taskId !== TASK_ID || binding.registrationSha256 !== registrationSha256 ||
+  if (!binding || !/^codex_prospective_[a-f0-9]{24}$/.test(binding.taskId) ||
+      binding.receiptId !== `codex_evaluator_${binding.taskId.slice("codex_prospective_".length)}` ||
+      binding.registrationSha256 !== registrationSha256 ||
       binding.criteriaSha256 !== registration.criteriaSha256 || binding.sourceRepository !== registration.sourceRepository ||
       binding.baselineCommit !== registration.baselineCommit || binding.baselineSha256 !== registration.baselineSha256 ||
       !DIGEST.test(binding.baselineSha256 || "") ||

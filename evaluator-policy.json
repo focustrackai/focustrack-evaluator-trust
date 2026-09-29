@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "criteriaSha256": "a3417f1fa66a40086f464085d7c2c8c303aa0e50bc8a20b2b948351f311b4cb2",
+  "criteriaSha256": "fd41bffab1c5432fe05518f43140291f5f2921a7189363444b8213fc41f4a9c8",
   "sourceRepository": "focustrackai/focustrack-",
   "verifierModule": "scripts/evaluator/verify-receipt-fusion-task.js",
-  "verifierSha256": "86b9ba6ffc13a7163ea330170da9d411fa8bba25440f1e8748134547c0cfb975"
+  "verifierSha256": "9f67d7f3425cde5ba2d545048a862060ffb43a90f6bf4deff79efe6ce93adbf4"
 }
