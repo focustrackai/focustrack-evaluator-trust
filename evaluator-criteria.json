@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "taskId": "codex_prospective_evaluator_receipt_inbox_v2",
+  "sourceRepository": "focustrackai/focustrack-",
+  "sourceFiles": [
+    "desktop/state/desktop-evaluator-receipt-inbox.js",
+    "execution-work-verification-assertion.js",
+    "shared/evidence/signed-evaluator-receipt.js"
+  ],
+  "acceptance": {
+    "requiresNoAward": true,
+    "requiresExactWorkReceiptJoin": true,
+    "requiresUnrelatedReceiptRejection": true,
+    "requiresRuntimeIntelligenceWiring": false
+  }
+}
