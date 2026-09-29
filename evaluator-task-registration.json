@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "taskId": "codex_prospective_evaluator_receipt_inbox_v2",
+  "sourceRepository": "focustrackai/focustrack-",
+  "baselineCommit": "25442bd51922b453487d30caa135e2d3eca85735",
+  "baselineSha256": "c165386a39cdd8fb898b800a476a8ca7df04ffe35fa182d66b8e0aaf86b01d3e",
+  "criteriaSha256": "fd41bffab1c5432fe05518f43140291f5f2921a7189363444b8213fc41f4a9c8"
+}
