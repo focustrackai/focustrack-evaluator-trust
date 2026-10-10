@@ -1,0 +1,54 @@
+name: Dedicated prior history checkpoint (disabled)
+on:
+  workflow_dispatch:
+    inputs:
+      enrollment_id:
+        description: Opaque pre-enrolled ID only; no task data or profile identifiers
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+concurrency:
+  group: history-checkpoint-${{ inputs.enrollment_id }}
+  cancel-in-progress: false
+jobs:
+  produce:
+    if: vars.FOCUSTRACK_HISTORY_PRODUCER_ENABLED == '1' && github.repository == 'focustrackai/focustrack-evaluator-trust'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    environment: history-checkpoint-production
+    steps:
+      - name: Read the frozen producer source only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install the existing pinned Linux Node runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/history-checkpoint-node"
+          test ! -e "$root"
+          mkdir -m 700 "$root"
+          curl --fail --silent --show-error --proto '=https' --connect-timeout 20 --max-time 90 \
+            https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.xz -o "$root/node.tar.xz"
+          printf '%s  %s\n' 2f2c0da162318f0de47665410c7c8c2ed3d36c8f3105de4bbc61176c70a7cbf2 "$root/node.tar.xz" | sha256sum --check --status
+          tar -xJf "$root/node.tar.xz" -C "$root" --strip-components=2 node-v24.20.0-linux-x64/bin/node
+          test "$("$root/node" --version)" = v24.20.0
+      - name: Validate sources, reserve once, sign and store privately
+        shell: bash
+        env:
+          FOCUSTRACK_HISTORY_PRODUCER_ENABLED: ${{ vars.FOCUSTRACK_HISTORY_PRODUCER_ENABLED }}
+          FOCUSTRACK_HISTORY_OBSERVATION_INPUT_ENABLED: ${{ vars.FOCUSTRACK_HISTORY_OBSERVATION_INPUT_ENABLED }}
+          FOCUSTRACK_HISTORY_SOURCE_READER_ENABLED: ${{ vars.FOCUSTRACK_HISTORY_SOURCE_READER_ENABLED }}
+          FOCUSTRACK_HISTORY_PRODUCER_POLICY: ${{ vars.FOCUSTRACK_HISTORY_PRODUCER_POLICY }}
+          FOCUSTRACK_HISTORY_ENROLLMENT_ID: ${{ inputs.enrollment_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/history-checkpoint-node/node" cloud/history-checkpoint/producer.js'
+# Local review source only. Intended destination: existing independent trust repo.
+# No candidate checkout/execution, user data artifacts, upload-artifact, caches,
+# receipts, signatures or private input/output logging. Activation also requires
+# exact reviewed workflow SHA in the isolated Google WIF attribute condition.
