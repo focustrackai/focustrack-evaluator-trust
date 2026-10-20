@@ -1,0 +1,70 @@
+name: Protected registration staging (disabled)
+on:
+  workflow_call:
+    inputs:
+      approved_plan_sha256:
+        description: Hash of the independently installed private approval document
+        required: true
+        type: string
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: focustrack-protected-registration-install
+  cancel-in-progress: false
+jobs:
+  stage:
+    if: vars.FOCUSTRACK_PROTECTED_DEPLOYMENT_ENABLED == '1' && github.repository == 'focustrackai/focustrack-evaluator-trust' && github.run_attempt == 1
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    environment: protected-registration-install
+    steps:
+      - name: Install the existing pinned Node runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/protected-install-node"
+          test ! -e "$root"
+          mkdir -m 700 "$root"
+          curl --fail --silent --show-error --proto '=https' --connect-timeout 20 --max-time 90 https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.xz -o "$root/node.tar.xz"
+          printf '%s  %s\n' 2f2c0da162318f0de47665410c7c8c2ed3d36c8f3105de4bbc61176c70a7cbf2 "$root/node.tar.xz" | sha256sum --check --status
+          tar -xJf "$root/node.tar.xz" -C "$root" --strip-components=2 node-v24.20.0-linux-x64/bin/node
+          test "$("$root/node" --version)" = v24.20.0
+      - name: Resolve the running reusable workflow commit, never caller-selected code
+        id: receiver
+        shell: bash
+        env:
+          APPROVED_PLAN_SHA256: ${{ inputs.approved_plan_sha256 }}
+        run: |
+          "$RUNNER_TEMP/protected-install-node/node" <<'NODE'
+          (async () => {
+            const fs = require('node:fs'), e = process.env;
+            if (!/^[a-f0-9]{64}$/.test(e.APPROVED_PLAN_SHA256 || '')) throw Error('hash');
+            const u = new URL(e.ACTIONS_ID_TOKEN_REQUEST_URL);
+            if (u.protocol !== 'https:' || !u.hostname.endsWith('.actions.githubusercontent.com') || u.port || u.username || u.password || u.hash) throw Error('issuer');
+            u.searchParams.set('audience', 'https://focustrack.invalid/install/' + e.APPROVED_PLAN_SHA256);
+            const r = await fetch(u, { headers: { authorization: 'Bearer ' + e.ACTIONS_ID_TOKEN_REQUEST_TOKEN }, redirect: 'error', signal: AbortSignal.timeout(15000) });
+            if (!r.ok) throw Error('oidc');
+            const { value } = await r.json();
+            const c = JSON.parse(Buffer.from(value.split('.')[1], 'base64url'));
+            if (!/^[a-f0-9]{40}$/.test(c.job_workflow_sha || '') || c.iss !== 'https://token.actions.githubusercontent.com' || c.job_workflow_ref !== 'focustrackai/focustrack-evaluator-trust/.github/workflows/deploy-protected-registration.yml@' + c.job_workflow_sha) throw Error('callee');
+            fs.appendFileSync(e.GITHUB_OUTPUT, 'commit=' + c.job_workflow_sha + '\n');
+          })().catch(() => { console.error('Receiver identity unavailable; no deployment.'); process.exitCode = 1; });
+          NODE
+      - name: Read only the immutable receiver source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: focustrackai/focustrack-evaluator-trust
+          ref: ${{ steps.receiver.outputs.commit }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Stage the independently approved disabled configuration once
+        shell: bash
+        env:
+          FOCUSTRACK_PROTECTED_DEPLOYMENT_ENABLED: ${{ vars.FOCUSTRACK_PROTECTED_DEPLOYMENT_ENABLED }}
+          FOCUSTRACK_INSTALL_PLAN_SHA256: ${{ inputs.approved_plan_sha256 }}
+          FOCUSTRACK_INSTALLER_COMMIT: ${{ steps.receiver.outputs.commit }}
+        run: '"$RUNNER_TEMP/protected-install-node/node" scripts/protected-registration-deploy.js'
+# The OIDC decode selects this callee's source; it is NOT authentication.
+# Google STS verifies the signed claims and independent exact-commit/plan trust.
+# No caller checkout, caller-selected scripts, secrets:inherit, caches or artifacts.
